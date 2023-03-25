@@ -1,9 +1,10 @@
 import json
-from typing import List
+from typing import List, Dict, Optional
 
 import pandas as pd
 import requests as r
 from bs4 import BeautifulSoup, PageElement
+from pandas import ExcelWriter
 
 headers = {
     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.96 '
@@ -26,44 +27,37 @@ def get_companies() -> List[dict]:
     return companies
 
 
-def get_companies_jobs_infos(companies) -> List[dict]:
-    companies_jobs_infos = []
+def get_companies_jobs_infos(companies: List[dict]) -> Dict[str, List[dict]]:
+    companies_jobs_infos = {}
 
     for company in companies:
-        jobs_infos = get_company_jobs_infos(company)
-        companies_jobs_infos += jobs_infos
+        append_company_jobs_infos(companies_jobs_infos, company)
 
-    # print(f'{companies_jobs_infos=}')
     return companies_jobs_infos
 
 
-def get_company_jobs_infos(company: dict) -> List[dict]:
-    company_jobs_infos = []
-    number_of_company_jobs_infos_pages = get_number_of_company_jobs_infos_pages(company)
+def append_company_jobs_infos(companies_jobs_infos: Dict[str, List[dict]], company: dict) -> None:
+    company_glassdor_first_page_soup = get_company_glassdor_page_soup(company)
 
-    for company_jobs_infos_page in range(1, number_of_company_jobs_infos_pages + 1):
-        company_jobs_infos += get_company_page_jobs_infos(company, company_jobs_infos_page)
+    number_of_company_jobs_pages = get_number_of_company_jobs_pages(company_glassdor_first_page_soup)
+    company_readable_name = company_glassdor_first_page_soup.find('p', class_='employerName').text
 
-    print(f'{company_jobs_infos=}')
-    return company_jobs_infos
-
-
-def get_number_of_company_jobs_infos_pages(company) -> int:
-    company_glassdoor_first_page_url = get_company_glassdoor_url(company)
-    company_glassdoor_first_page_content = r.get(company_glassdoor_first_page_url, headers=headers).content
-
-    jobs_infos_number = scrape_number_of_company_jobs_infos_pages(company_glassdoor_first_page_content)
-    pages_number = get_pages_number_from_jobs_infos_number(jobs_infos_number)
-
-    return pages_number
+    companies_jobs_infos[company_readable_name] = []
+    for company_jobs_infos_page in range(1, number_of_company_jobs_pages + 1):
+        companies_jobs_infos[company_readable_name] += get_company_page_jobs_infos(company, company_jobs_infos_page)
 
 
-def scrape_number_of_company_jobs_infos_pages(company_glassdoor_content: bytes) -> int:
-    soup = BeautifulSoup(company_glassdoor_content, 'html.parser')
-    number_of_items = int(soup.find('div', class_='paginationFooter').text.strip().split(' ')[-1])
+def get_company_glassdor_page_soup(company: dict, page: Optional[int] = None) -> BeautifulSoup:
+    company_glassdoor_page_url = get_company_glassdoor_url(*((company,) if page is None else (company, page)))
+    company_glassdoor_page_content = r.get(company_glassdoor_page_url, headers=headers).content
 
-    print(f'{number_of_items=}')
-    return number_of_items
+    return BeautifulSoup(company_glassdoor_page_content, 'html.parser')
+
+
+def get_number_of_company_jobs_pages(company_glassdor_first_page_soup: BeautifulSoup) -> int:
+    jobs_infos_number = int(
+        company_glassdor_first_page_soup.find('div', class_='paginationFooter').text.strip().split(' ')[-1])
+    return get_pages_number_from_jobs_infos_number(jobs_infos_number)
 
 
 def get_pages_number_from_jobs_infos_number(jobs_infos_number: int) -> int:
@@ -94,19 +88,17 @@ def get_company_glassdoor_url(company: dict, page: int = 1) -> str:
 
 def scrape_company_page_jobs_infos(company_glassdoor_content: bytes) -> List[dict]:
     soup = BeautifulSoup(company_glassdoor_content, 'html.parser')
-    company_readable_name = soup.find('p', class_='employerName').text
     jobs_infos_htmls = list(soup.find(id='SalariesRef').children)
-    return list(map(lambda job_infos_html: scrape_job_infos(company_readable_name, job_infos_html), jobs_infos_htmls))
+    return list(map(scrape_job_infos, jobs_infos_htmls))
 
 
-def scrape_job_infos(company_readable_name: str, job_infos_html: PageElement) -> dict:
+def scrape_job_infos(job_infos_html: PageElement) -> dict:
     jobs_infos_strong_tags = job_infos_html('strong')
     filted_jobs_infos_strong_tags = list(filter(
         lambda jobs_infos_strong_tag: 'Adicione seu salário.' not in jobs_infos_strong_tag.text,
         jobs_infos_strong_tags))
 
     return {
-        'Empresa': company_readable_name,
         'Cargo': filted_jobs_infos_strong_tags[0].text,
         **scrape_job_salary_infos(jobs_infos_strong_tags),
         'Número de salários coletados': int(filted_jobs_infos_strong_tags[-2].text.split()[0]),
@@ -133,12 +125,17 @@ def remove_currency_jobs_infos_strong_tags_duplicates(
     return currency_jobs_infos_strong_tags
 
 
-def generate_companies_jobs_infos_excel(companies_jobs_infos: List[dict]) -> None:
-    df = pd.DataFrame(companies_jobs_infos)
-    writer = pd.ExcelWriter('glassdoor_jobs_infox.xlsx', engine='xlsxwriter')
-
-    df.to_excel(writer, sheet_name='Salários', index=False)
+def generate_companies_jobs_infos_excel(companies_jobs_infos: Dict[str, List[dict]]) -> None:
+    writer = pd.ExcelWriter('Salários Glassdoor.xlsx', engine='xlsxwriter')
+    for company_name, company_jobs_infos in companies_jobs_infos.items():
+        generate_company_jobs_infos_excel_page(writer, company_name, company_jobs_infos)
     writer.save()
+
+
+def generate_company_jobs_infos_excel_page(
+        writer: ExcelWriter, company_name: str, company_jobs_infos: List[dict]) -> None:
+    df = pd.DataFrame(company_jobs_infos)
+    df.to_excel(writer, sheet_name=company_name, index=False)
 
 
 if __name__ == 'main' or True:
