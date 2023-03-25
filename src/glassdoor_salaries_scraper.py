@@ -12,14 +12,10 @@ companies_filename = 'companies'
 delta = 20
 
 
-def get_company_glassdoor_url(company: dict, page: int = 1) -> str:
-    company_name = company.get('name')
-    company_code = company.get('code')
-    glassdoor_url = f'https://www.glassdoor.com.br/Salário/{company_name}-Salários-E{company_code}_P{page}.htm?filter' \
-                    f'.payPeriod=MONTHLY'
-
-    print(f'{glassdoor_url=}')
-    return glassdoor_url
+def main() -> None:
+    companies = get_companies()
+    companies_jobs_infos = get_companies_jobs_infos(companies)
+    generate_companies_jobs_infos_excel(companies_jobs_infos)
 
 
 def get_companies() -> List[dict]:
@@ -86,6 +82,16 @@ def get_company_page_jobs_infos(company: dict, company_jobs_infos_page: int) -> 
     return scrape_company_page_jobs_infos(company_glassdoor_content)
 
 
+def get_company_glassdoor_url(company: dict, page: int = 1) -> str:
+    company_name = company.get('name')
+    company_code = company.get('code')
+    glassdoor_url = f'https://www.glassdoor.com.br/Salário/{company_name}-Salários-E{company_code}_P{page}.htm?filter' \
+                    f'.payPeriod=MONTHLY'
+
+    print(f'{glassdoor_url=}')
+    return glassdoor_url
+
+
 def scrape_company_page_jobs_infos(company_glassdoor_content: bytes) -> List[dict]:
     soup = BeautifulSoup(company_glassdoor_content, 'html.parser')
     company_readable_name = soup.find('p', class_='employerName').text
@@ -133,12 +139,6 @@ def generate_companies_jobs_infos_excel(companies_jobs_infos: List[dict]) -> Non
 
     df.to_excel(writer, sheet_name='Salários', index=False)
     writer.save()
-
-
-def main() -> None:
-    companies = get_companies()
-    companies_jobs_infos = get_companies_jobs_infos(companies)
-    generate_companies_jobs_infos_excel(companies_jobs_infos)
 
 
 if __name__ == 'main' or True:
