@@ -138,5 +138,5 @@ def generate_company_jobs_infos_excel_page(
     df.to_excel(writer, sheet_name=company_name, index=False)
 
 
-if __name__ == 'main' or True:
+if __name__ == 'main':
     main()
