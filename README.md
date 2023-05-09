@@ -1,1 +1,1 @@
-# Glassdoor Salaries Scraper
+# Glassdoor Scraper
